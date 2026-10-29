@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在 InstaBox 上部署 ArgoSBX 固定隧道节点 · 小白教程（实测复盘版）</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --card:#ffffff; --ink:#1c2333; --sub:#5b6478; --line:#e3e7f0;
+    --brand:#4f46e5; --brand2:#0ea5e9; --ok:#0f9d58; --warn:#b45309; --warnbg:#fff7e6;
+    --bad:#c2410c; --code:#0d1220; --codeink:#dbe7ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;line-height:1.75;font-size:16px}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 18px 70px}
+  header.hero{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-radius:18px;padding:34px 30px 28px;box-shadow:0 12px 30px rgba(79,70,229,.25)}
+  header.hero h1{margin:0 0 8px;font-size:27px;line-height:1.35}
+  header.hero p{margin:4px 0;color:#e6ecff;font-size:15px}
+  .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);padding:3px 12px;border-radius:999px;font-size:13px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 26px;margin-top:18px}
+  h2{font-size:21px;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h2 .no{display:inline-block;background:var(--brand);color:#fff;border-radius:8px;padding:0 10px;margin-right:8px;font-size:16px;vertical-align:2px}
+  h3{font-size:17px;margin:18px 0 6px}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0 8px 4px;padding-left:22px}
+  li{margin:5px 0}
+  .sub{color:var(--sub);font-size:14px}
+  code{background:#eef1f8;border-radius:5px;padding:1px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px;color:#3730a3}
+  pre{background:var(--code);color:var(--codeink);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:13.5px;line-height:1.6}
+  pre code{background:none;color:inherit;padding:0}
+  .pit{background:var(--warnbg);border:1px solid #f3d9a4;border-left:5px solid var(--warn);border-radius:10px;padding:12px 16px;margin:14px 0}
+  .pit b{color:var(--warn)}
+  .ok{background:#ecfdf3;border:1px solid #bfe9cf;border-left:5px solid var(--ok);border-radius:10px;padding:12px 16px;margin:14px 0}
+  .ok b{color:var(--ok)}
+  .danger{background:#fff3ec;border:1px solid #f5cdb4;border-left:5px solid var(--bad);border-radius:10px;padding:12px 16px;margin:14px 0}
+  .danger b{color:var(--bad)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f2f4fa}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0;font-size:14px}
+  .node{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:8px 12px;text-align:center}
+  .arr{color:var(--brand);font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0}
+  .mini{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fbfcff}
+  .mini h4{margin:0 0 6px;font-size:15px}
+  .check li{list-style:none;position:relative;padding-left:6px}
+  .check{padding-left:6px}
+  footer{color:var(--sub);font-size:13px;text-align:center;margin-top:26px}
+  .kbd{background:#1c2333;color:#fff;border-radius:5px;padding:0 7px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>在 InstaBox 上部署 ArgoSBX 固定隧道节点</h1>
+  <p>小白向完整教程 · 含全程实测复盘与避坑细节</p>
+  <p>适用环境：InstaBox 免费机器（4 核 / 8G）＋ Cloudflare 账号 ＋ 一个托管在 Cloudflare 的域名</p>
+  <div class="chips">
+    <span class="chip">最终成果：自有域名直达的 VMess-WS 节点</span>
+    <span class="chip">不需要公网 IP</span>
+    <span class="chip">不需要开放任何端口</span>
+    <span class="chip">基于 2026 年 10 月实测（ArgoSBX V26.7.16）</span>
+  </div>
+</header>
+
+<section>
+  <h2>先用一分钟看懂：为什么必须走隧道</h2>
+  <p>InstaBox 给的是一台云端沙箱机，它和普通 VPS 有一个根本区别：<b>外面连不进来</b>。</p>
+  <div class="grid">
+    <div class="mini"><h4>❌ 没有公网入站</h4><p class="sub">机器只有一个「只出不进」的 AWS 出口 IP。VLESS-Reality、AnyTLS 这类需要客户端直连服务器端口的协议，在这里装上了也是死节点。</p></div>
+    <div class="mini"><h4>❌ 没有 UDP 入口</h4><p class="sub">Hysteria2、TUIC 走 UDP/QUIC，InstaBox 完全没有 UDP 入站通道，直接排除。</p></div>
+    <div class="mini"><h4>✅ 隧道是「往外拨」的</h4><p class="sub">Cloudflare Argo 隧道由机器主动向外连接 Cloudflare，流量再从 Cloudflare 绕回来——绕开了「进不来」的问题。这正是 ArgoSBX 脚本的拿手场景。</p></div>
+  </div>
+  <p><b>最终链路长这样：</b></p>
+  <div class="flow">
+    <span class="node">你的客户端<br><span class="sub">v2rayNG / 小火箭 / Clash</span></span><span class="arr">→</span>
+    <span class="node">Cloudflare 边缘<br><span class="sub">你的域名 · 443 端口</span></span><span class="arr">→</span>
+    <span class="node">Argo 固定隧道<br><span class="sub">cloudflared 向外长连接</span></span><span class="arr">→</span>
+    <span class="node">机内 Xray<br><span class="sub">VMess-WS · 本地 10086</span></span><span class="arr">→</span>
+    <span class="node">互联网<br><span class="sub">落地 = AWS 美国出口 IP</span></span>
+  </div>
+  <div class="pit"><b>⚠️ 先把预期摆正：</b>InstaBox 免费档有两条硬规则——①闲置 30 分钟自动暂停；②连续运行满 480 分钟强制暂停，进约 10 分钟冷却。所以节点<b>每天会有约 14~17 分钟连不上</b>（10 分钟冷却 ＋ 恢复等待），之后自动满血复活、地址不变。要 24 小时不间断，请用真 VPS，不要为难免费沙箱。</div>
+</section>
+
+<section>
+  <h2>准备清单（缺一不可）</h2>
+  <ul class="check">
+    <li>✅ <b>InstaBox 账号</b>，且已创建一台免费机器（本教程的机器名为 <code>hermes</code>，系统 Debian 13）</li>
+    <li>✅ <b>Cloudflare 账号</b>（免费即可）</li>
+    <li>✅ <b>一个托管在 Cloudflare 的域名</b>（本教程示例：<code>example.com</code>，给节点用的子域名为 <code>argo.example.com</code>）。域名如果还没迁到 Cloudflare，先去把 NS 改过去，这是固定隧道的硬前提</li>
+    <li>✅ <b>保活手段</b>：机器睡了隧道就断。实测方案是用一个 Cloudflare Worker 每 9 分钟给机器续一次活动租约（细节见文末「日常维护」）</li>
+    <li>✅ <b>一个 SSH 工具</b>（本教程用 Netcatty，也可用任意终端）和<b>一个代理客户端</b>（验收用）</li>
+    <li>✅ 预留 30~60 分钟，中间有一步必须等平台冷却/你手动操作，急不得</li>
+  </ul>
+  <div class="danger"><b>🔐 安全总则（先说在前面）：</b>整个流程里有两样东西等于你家钥匙——Cloudflare 的<b>隧道 token</b> 和节点 <b>UUID</b>。它们只应该出现在：Cloudflare 后台、机器内部的文件里、你自己的客户端里。<b>不要发到任何聊天、群、截图中</b>。本教程所有传递密钥的步骤都按这个原则设计。</div>
+</section>
+
+<section>
+  <h2><span class="no">1</span>在 Cloudflare 创建固定隧道，拿到 token</h2>
+  <ol>
+    <li>打开 Cloudflare Zero Trust 后台（<code>one.dash.cloudflare.com</code>），左侧进入 <b>Networks（网络）→ Tunnels（隧道）</b></li>
+    <li>点 <b>Create a tunnel（创建隧道）</b>，类型选 <b>Cloudflared</b>，名字随便起（比如 <code>instabox</code>），保存</li>
+    <li>进入「安装连接器」页面后，页面会给出一条带 token 的安装命令，形如 <code>cloudflared service install eyJ...</code>——<b>那串 <code>eyJ</code> 开头的长字符串就是隧道 token</b>，先复制到你自己的记事本里存好（约 184 个字符）</li>
+    <li>这个页面先别关，后面第 4 步还要回来给这条隧道加一条路由</li>
+  </ol>
+  <div class="pit"><b>⚠️ 避坑：</b>token 相当于这条隧道的身份证，<b>不要</b>图省事直接粘贴到聊天软件里传递——下一步我们让它通过 SSH 直接进机器，全程不经过任何聊天窗口。</div>
+</section>
+
+<section>
+  <h2><span class="no">2</span>用 SSH 把 token 安全放进机器</h2>
+  <h3>2.1 在 InstaBox 里创建 SSH token</h3>
+  <ol>
+    <li>打开 InstaBox 控制台，进入你的机器 → <b>Connect</b> 区域 → <b>SSH tokens</b> → <b>Create token</b></li>
+    <li>它会给你一整行现成的命令，形如 <code>ssh ibssh_xxxxx@ssh.instabox.sh</code></li>
+  </ol>
+  <div class="pit"><b>⚠️ 避坑：</b>这个 SSH token <b>默认只有 24 小时有效</b>，过期就连不上，要重新创建。创建时如果有效期可选，选长一点（如 7~30 天）能省掉部署中途断线的麻烦；用完可以在同一位置随时撤销。</div>
+  <h3>2.2 在 Netcatty 里新建连接</h3>
+  <table>
+    <tr><th style="width:28%">字段</th><th>填什么</th></tr>
+    <tr><td>主机 Host</td><td><code>@</code> 后面的部分，如 <code>ssh.instabox.sh</code></td></tr>
+    <tr><td>端口 Port</td><td>命令里有 <code>-p 数字</code> 就填该数字，没有就填 <code>22</code></td></tr>
+    <tr><td>用户名 Username</td><td><code>@</code> 前面的整段，也就是 <code>ibssh_</code> 开头的那串 token 本身</td></tr>
+    <tr><td>认证</td><td>选密码登录、<b>密码留空</b>、不要选密钥文件——凭证就是用户名里那串 token</td></tr>
+  </table>
+  <p>连接后第一次会问是否信任网关主机密钥，确认即可。连上的提示符形如 <code>user@instabox-hermes:~$</code>。</p>
+  <h3>2.3 把 Cloudflare 隧道 token 写进机器文件</h3>
+  <p>在 SSH 窗口里粘贴下面这一整行（把引号里的中文替换成你第 1 步复制的隧道 token，其余不动），回车：</p>
+  <pre><code>mkdir -p ~/argosbx &amp;&amp; printf '%s' '在这里粘贴你的token' &gt; ~/argosbx/agk.txt &amp;&amp; chmod 600 ~/argosbx/agk.txt &amp;&amp; wc -c ~/argosbx/agk.txt</code></pre>
+  <ul>
+    <li>命令最后会回一个<b>字节数</b>（约 184 左右）——记住它，这是你确认「文件里确实是 token」的唯一凭据</li>
+    <li><code>chmod 600</code> 把文件设为只有自己可读，别省这一步</li>
+    <li>验证时只看大小和格式，<b>永远不要用 <code>cat</code> 把 token 打到屏幕上截图</b></li>
+  </ul>
+  <div class="ok"><b>✅ 本步完成的标志：</b>机器里存在 <code>~/argosbx/agk.txt</code>，大小约 184 字节、权限 600、以 <code>eyJ</code> 开头、无空格换行。</div>
+</section>
+
+<section>
+  <h2><span class="no">3</span>运行 ArgoSBX 脚本（本教程最关键的一步）</h2>
+  <p>ArgoSBX 是甬哥的开源一键脚本（Sing-box / Xray / Cloudflared 三内核），本教程只开 <b>VMess-WS 一个协议</b>，并指定它走固定隧道。先想清楚三个变量：</p>
+  <table>
+    <tr><th style="width:18%">变量</th><th style="width:34%">本教程的值</th><th>作用</th></tr>
+    <tr><td><code>vmpt</code></td><td><code>10086</code></td><td>开启 VMess-WS，并指定它在机器本地监听的端口。这个数字<b>先定死、记牢</b>，第 4 步 Cloudflare 后台要照着它填</td></tr>
+    <tr><td><code>argo</code></td><td><code>vmpt</code></td><td>⭐ 隧道开关：告诉脚本「把 Argo 隧道接到 VMess-WS 这个协议上」。<b>值是协议变量名，不是 y</b></td></tr>
+    <tr><td><code>agn</code></td><td><code>argo.example.com</code></td><td>固定隧道域名（换成你自己的子域名）</td></tr>
+    <tr><td><code>agk</code></td><td>从文件读</td><td>隧道 token，用 <code>$(cat ~/argosbx/agk.txt)</code> 在机器内部读取，不经过屏幕和聊天</td></tr>
+  </table>
+  <p>在 SSH 窗口（或任何能进机器的终端）里执行：</p>
+  <pre><code>cd ~/argosbx
+curl -fsSL -o argosbx.sh https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh
+env vmpt=10086 argo=vmpt agn=argo.example.com agk="$(cat agk.txt)" bash argosbx.sh</code></pre>
+  <p>脚本会自动下载 Xray 与 Cloudflared 内核并启动。成功的输出里必须同时出现：</p>
+  <pre><code>=========启用Cloudflared-argo内核=========
+申请Argo固定隧道中……请稍等
+Argo固定隧道申请成功
+=========当前三大内核运行状态=========
+Xray：运行中
+Argo：运行中</code></pre>
+  <div class="pit"><b>⚠️ 避坑 1（本教程最大的坑，实测踩过）：只给 <code>agn</code> 和 <code>agk</code>、不给 <code>argo=vmpt</code>，脚本不会报错，但隧道根本不会启用</b>——输出会显示「Argo：未启用」，<code>~/agsbx</code> 目录里没有 cloudflared，最后只得到一个指向机器出口 IP 的<b>直连死节点</b>。判断标准就一条：状态里 Argo 必须是「运行中」。</div>
+  <div class="pit"><b>⚠️ 避坑 2：装过之后想改变量，直接重跑安装命令是无效的。</b>脚本检测到已安装会直接显示状态退出。改配置必须用它自带的重置命令 <code>rep</code>，把新变量组连同 <code>rep</code> 一起下达：<br><code>env vmpt=10086 argo=vmpt agn=argo.example.com agk="$(cat agk.txt)" bash argosbx.sh rep</code></div>
+  <div class="pit"><b>⚠️ 避坑 3：开工前先看机器是不是在「冷却」。</b>满 480 分钟的冷却期内，平台会拒绝一切操作（报错 <code>machine_cooldown</code> 并给出结束时间）。这不是脚本失败，等冷却结束（通常 10 分钟内）再跑即可。</div>
+  <p class="sub">可选变量：<code>uuid</code> 不指定则随机生成（推荐，生成后它就是节点密码）；<code>warp</code> 本教程不开——不开时落地 IP 是 AWS 机房 IP；开了 WARP 出站落地会变成 Cloudflare WARP 的 IP，解锁流媒体更友好但多一层损耗，按需用 <code>rep</code> 切换。</p>
+</section>
+
+<section>
+  <h2><span class="no">4</span>回 Cloudflare 后台，补上 Public Hostname 路由</h2>
+  <p>隧道连上只是把「管道」修好了，还需要在 Cloudflare 告诉它：访问哪个域名时，把流量送进这条管道、转给机器本地哪个端口。</p>
+  <ol>
+    <li>回到第 1 步那条隧道的页面，切到 <b>Public Hostnames（公共主机名）</b> 页签 → <b>Add a public hostname</b></li>
+    <li>按下表填写，然后保存（保存时 Cloudflare 会自动把对应的 DNS 记录建好，不用再去 DNS 页面手动加）：</li>
+  </ol>
+  <table>
+    <tr><th style="width:28%">字段</th><th>填什么</th></tr>
+    <tr><td>Subdomain（子域名）</td><td><code>argo</code></td></tr>
+    <tr><td>Domain（域名）</td><td>选你的域名，如 <code>example.com</code></td></tr>
+    <tr><td>Path（路径）</td><td><b>留空</b></td></tr>
+    <tr><td>Type（类型）</td><td><code>HTTP</code>（不要选 HTTPS，机内是明文 WS，由 Cloudflare 边缘负责加密）</td></tr>
+    <tr><td>URL</td><td><code>localhost:10086</code> ← 就是第 3 步 <code>vmpt</code> 定的那个端口</td></tr>
+  </table>
+  <div class="pit"><b>⚠️ 避坑：</b>这一步没做完之前，去访问 <code>argo.你的域名</code> 必然失败（域名甚至还不存在），这是正常现象，<b>不是隧道坏了</b>。正确的点火顺序就是：先让隧道在机器侧连上（第 3 步），再补这条路由（本步）。另外这个子域名和同域名下其他用途（比如给某个网站用的 Worker 子域名）互不冲突，同一个域名可以并存多个子域名、各自干各自的事。</div>
+</section>
+
+<section>
+  <h2><span class="no">5</span>验证：三处都通才算成</h2>
+  <h3>5.1 机器内验证</h3>
+  <pre><code>pgrep -a cloudflared        # 有进程在跑（命令行带 --token，属于正常）
+pgrep -af "xray run"        # Xray 在跑
+cat ~/agsbx/argoport.log    # 应输出 10086
+cat ~/agsbx/sbargoym.log    # 应输出 argo.你的域名</code></pre>
+  <h3>5.2 公网验证（在你自己电脑/任意外部网络执行）</h3>
+  <pre><code>curl -s -o /dev/null -w "%{http_code}\n" https://argo.你的域名/
+curl -s -i -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  "https://argo.你的域名/&lt;你的UUID&gt;-vm" | head -3</code></pre>
+  <ul>
+    <li>第一条返回 <code>404</code> 是<b>好消息</b>：说明流量已经穿过隧道到达机内 Xray，只是根路径不匹配任何协议，它回了个 404。<b>新手最容易在这里误判「失败」</b>——521/530/1033 之类才是隧道层面的错误</li>
+    <li>第二条返回 <code>HTTP/1.1 101 Switching Protocols</code> = WebSocket 握手成功 = 整条链路贯通 ✅</li>
+  </ul>
+  <div class="ok"><b>✅ 本步完成的标志：</b>机内两进程在跑、端口/域名记录正确、公网握手拿到 101。</div>
+</section>
+
+<section>
+  <h2><span class="no">6</span>导入客户端并验收</h2>
+  <ol>
+    <li>节点链接在机器的 <code>~/agsbx/jhsub.txt</code> 里（聚合订阅格式），同目录还有 <code>clmi.yaml</code>（Clash/Mihomo 格式）。用 <code>cat ~/agsbx/jhsub.txt</code> 查看，或用 SSH 工具的 SFTP 把文件取下来</li>
+    <li>你会看到 <b>13 条 vmess 链接</b>：不要慌，它们是<b>同一个节点的 13 种 CDN 走法</b>（不同的 Cloudflare 入口域名/端口组合，如 443、8443、2053……），UUID 和路径都一样</li>
+    <li><b>主推第一条 443/TLS 的</b>（名字带 <code>vmess-ws-tls-argo-…-443</code>），复制整段到客户端里「从剪贴板导入」即可；哪条慢就换另一条试，这是 CDN 节点的常规玩法</li>
+    <li>文件里若还有一条 <code>add</code> 是机器 IP（如 54.x.x.x）的<b>直连节点，不要用</b>——InstaBox 没有公网入口，它永远连不上，是脚本顺带生成的</li>
+    <li>验收：连接后打开任意查 IP 的网站，应显示 <b>美国 Boardman（AWS）</b>、IP 与机器出口一致，能正常打开网页即成功</li>
+  </ol>
+  <div class="pit"><b>⚠️ 避坑：</b><code>jhsub.txt</code> 和节点链接里含 UUID（节点密码），整个文件按密钥对待，不要上传到公共订阅转换网站、不要发给别人。</div>
+</section>
+
+<section>
+  <h2>日常维护速记</h2>
+  <table>
+    <tr><th style="width:26%">事项</th><th>说明</th></tr>
+    <tr><td>每天的「断片」</td><td>满 480 分钟被暂停 → 约 10 分钟冷却 → 被保活/访问唤醒，感知中断约 14~17 分钟。隧道地址是固定的，恢复后 cloudflared 自动重连，<b>不需要任何手动操作</b>，节点链接也不用换</td></tr>
+    <tr><td>保活</td><td>没有保活时机器闲置 30 分钟就睡，隧道随之断。实测方案：Cloudflare Worker 每 9 分钟调用一次 InstaBox 的活动租约接口续命（租约必须从机器外部续，这一点是官方机制）</td></tr>
+    <tr><td>常用命令</td><td><code>agsbx list</code> 看节点信息 · <code>agsbx res</code> 重启 · 改变量用 <code>rep</code>（见避坑 2） · <code>agsbx upx</code> 更新 Xray 内核 · <code>agsbx del</code> 卸载</td></tr>
+    <tr><td>不要乱删</td><td><code>~/agsbx</code> 是脚本的命根子：配置、证书、隧道 token 的恢复副本、自恢复钩子都在里面。机器重启/恢复后它靠这些文件自己爬起来，删了就真没了</td></tr>
+    <tr><td>磁盘占用</td><td>脚本加内核总共几百 MB 以内，落在用户主目录（本环境在 20G 的 /data 盘上）。若同机还装了别的大家伙（如 Ekko 的 7.2G 镜像占系统盘），注意系统盘余量与它无关、别混淆</td></tr>
+    <tr><td>出口 IP</td><td>实测跨多天、多次暂停恢复都不变；但官方不承诺固定，删机重建或平台迁移宿主时可能变。变了只影响「落地 IP 长相」，隧道和节点链接不受影响</td></tr>
+    <tr><td>彻底卸载</td><td>机内执行 <code>agsbx del</code>，再去 Cloudflare 删掉那条隧道和 Public Hostname/DNS 记录，五分钟清干净</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>故障排查表（按症状对号入座）</h2>
+  <table>
+    <tr><th style="width:30%">症状</th><th style="width:30%">最可能的原因</th><th>怎么办</th></tr>
+    <tr><td>装完 Argo 显示「未启用」，只有直连节点</td><td>没给 <code>argo=vmpt</code> 变量（避坑 1）</td><td>用 <code>rep</code> 带上完整变量组重下达（避坑 2）</td></tr>
+    <tr><td>改了变量重跑，配置纹丝不动</td><td>对已安装状态重跑安装是短路的</td><td>同上，用 <code>rep</code></td></tr>
+    <tr><td>执行任何操作报 <code>machine_cooldown</code></td><td>正赶上 480 分钟上限的冷却期</td><td>看报错里给的结束时间，等它过去再试，约 10 分钟</td></tr>
+    <tr><td>域名打不开 / 解析不到</td><td>Public Hostname 还没加，或刚加完 DNS 未生效</td><td>回第 4 步核对五个字段，等 1~2 分钟再试</td></tr>
+    <tr><td>访问域名返回 404</td><td>多半是正常现象（根路径到了 Xray）</td><td>按 5.2 用带 UUID 路径的握手测试判断，别只看根路径</td></tr>
+    <tr><td>返回 502 / 1033</td><td>隧道没连上，或后台 URL 端口填错</td><td>机内查 cloudflared 进程与 <code>~/agsbx/argoport.log</code>，与后台 URL 里的端口逐字对一遍</td></tr>
+    <tr><td>节点每天固定时段断十几分钟</td><td>480 分钟上限 + 冷却（平台规则）</td><td>正常现象，记下大致时段避开即可；恢复后自动重连</td></tr>
+    <tr><td>SSH 突然连不上</td><td>SSH token 过期（默认 24 小时）或机器在冷却/暂停</td><td>去 InstaBox Connect 区重新建 token，只改 Netcatty 里的用户名一栏；机器暂停的话先访问一次它的公网服务或等保活唤醒</td></tr>
+    <tr><td>节点能连但目标网站打不开/被拒</td><td>落地是 AWS 机房 IP，被目标站点风控</td><td>换 13 条里的其他 CDN 入口试试；或用 <code>rep</code> 加开 WARP 出站换落地</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>最后：风险与边界（请认真看完）</h2>
+  <div class="danger"><b>🚨 账号风险提示：</b>InstaBox 的定位是给 AI agent 用的云端沙箱，在上面长期运行代理节点<b>不在其预期用途之内</b>，免费账号存在被平台风控、暂停甚至封号的可能（同类免费平台已有先例，脚本作者本人亦有提醒）。请把它当<b>试验品</b>：能用多久算多久，不要在上面放任何不可替代的东西，更不要拿它当生产主力节点。是否值得冒这个险，决定权在你自己。</div>
+  <ul>
+    <li>本教程的每一步都来自 2026 年 10 月的一次真实部署与逐项验证；平台规则、脚本版本（当时为 V26.7.16）都会变化，命令与界面文字请以你操作时的实际版本为准</li>
+    <li>同机若还跑着别的服务（如 Ekko），本教程的操作与之隔离：脚本只动自己的 <code>~/agsbx</code> 目录，不碰 Docker 与其他应用的配置</li>
+    <li>教程中出现的域名、端口、IP 均为示例环境，请替换为你自己的；UUID、token 等真实凭证切勿照抄传播</li>
+  </ul>
+</section>
+
+<footer>
+  在 InstaBox 上部署 ArgoSBX 固定隧道节点 · 实测复盘教程 · 2026 年 10 月<br>
+  项目地址：ArgoSBX 脚本 github.com/yonggekkk/argosbx ｜ 平台 instabox.sh
+</footer>
+
+</div>
+</body>
+</html>
